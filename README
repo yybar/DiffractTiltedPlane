@@ -1,0 +1,5 @@
+This repository contains DiffractTiltedPlane.py and ImageScienceToolBox.py.  The code contained in DiffractTiltedPlane contains a base class and sub class.  The base class calls the ImageScienceClass in ImageScienceToolBox.py and makes use of ImageScienceClass.pol2cartMat(nsamp,padFac) to create a circular pupil for the modeling in DiffractTiltedPlane.py.  
+
+The DiffractTiltedPlane contains a Fresnel diffraction kernel that propagates a coherent beam from a source to a tilted plane in the far-field.  The Fresnel propagator is not really needed but it included for near-field work too.  The diffraction DFT is modeled as two van der Monde matrix multiplies of the form Hup*source*Hvq.transpose() and the tilted plane is modeled by rotation matrix.  The DFT formalism provides complete flexibility of the Fourier propagator with regards to sampling.  
+
+The cool thing about this code is that partially coherent effects can be modeled by shrinking the source size to a pixel or two and performing an incoherent superposition of irradiance values on the tiled plane. 
