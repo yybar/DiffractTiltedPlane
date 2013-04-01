@@ -29,7 +29,7 @@ class CoordSys(object):
         self.parms    = parms
         self.ISTB     = ISTB
     
-#------------------------------------------------------------#
+ #------------------------------------------------------------#
     def vecForm(self,xS0,yS0):
         # form the [xp, zp] vector and perform the necessary rotation
         # form a list, then transform to numpy matrices, and do the
@@ -50,15 +50,10 @@ class CoordSys(object):
             vecS[kk,1] = 2.0*(ii-nsampSrc/2)*srcSD/nsampSrc-yS0
             kk = kk + 1
         
-        dxS      = abs(vecS[0,0]-vecS[1,0])
-        etaRange = 0.5/dxS
-        deta     = etaRange/nsampDet
-        dxD      = deta
-        
         kk = 0
         for ii in range(nsampDet):
-            vecD[kk,0] = (ii-nsampDet/2)*dxD                 # x values
-            vecD[kk,1] = (ii-nsampDet/2)*dxD                 # y values
+            vecD[kk,0] = 2.0*(ii-nsampDet/2)*detSD/nsampDet     # x values
+            vecD[kk,1] = 2.0*(ii-nsampDet/2)*detSD/nsampDet     # y values
             kk = kk + 1
         
         vecSM     = num.matrix(vecS)
@@ -110,12 +105,12 @@ class CoordSys(object):
         # source amplitude model
         rectXA   = SXA
         rectYA   = SYA
-        rectXA   = (abs(rectXA) <= srcSD/(2.*srcPadFac)).choose(rectXA,srcSD/(2.*srcPadFac))
-        rectXA   = (abs(rectXA) >  srcSD/(2.*srcPadFac)).choose(rectXA,1e-012)
-        rectYA   = (abs(rectYA) <= srcSD/(2.*srcPadFac)).choose(rectYA,srcSD/(2.*srcPadFac))
-        rectYA   = (abs(rectYA) >  srcSD/(2.*srcPadFac)).choose(rectYA,1e-012)
-        rectXA   = rectXA*(2.*srcPadFac/srcSD)
-        rectYA   = rectYA*(2.*srcPadFac/srcSD)
+        rectXA   = (abs(rectXA) <= srcSD/(srcPadFac)).choose(rectXA,srcSD/(srcPadFac))
+        rectXA   = (abs(rectXA) >  srcSD/(srcPadFac)).choose(rectXA,1e-012)
+        rectYA   = (abs(rectYA) <= srcSD/(srcPadFac)).choose(rectYA,srcSD/(srcPadFac))
+        rectYA   = (abs(rectYA) >  srcSD/(srcPadFac)).choose(rectYA,1e-012)
+        rectXA   = rectXA*(srcPadFac/srcSD)
+        rectYA   = rectYA*(srcPadFac/srcSD)
         sourceA  = rectXA*rectYA
         
         #self.ISTB.ISTB.pol2cartMat(nsampSrc,srcPadFac)
@@ -282,6 +277,20 @@ class Diffraction(CoordSys):
         nsampDet = self.parms['nsampDet']
         srcSD    = self.parms['srcSD']
         detSD    = self.parms['detSD']
+        wavel    = self.parms['wavel']
+        z0       = self.parms['z0']
+        
+        dxS      = abs(vecSM[0,0]-vecSM[1,0])
+        dxD      = abs(vecDM[0,0]-vecDM[1,0])
+        
+        
+        # outer product
+        ux       = ((1.0*nsampSrc/nsampDet)*vecDM[:,0]/dxD)*(0.125*vecSM[:,0]/srcSD).transpose()
+        vy       = ((1.0*nsampSrc/nsampDet)*vecDM[:,1]/dxD)*(0.125*vecSM[:,1]/srcSD).transpose()
+        uxA      = num.array(ux)
+        vyA      = num.array(vy)
+        
+        #pdb.set_trace()
         
         # initialize matrix elements
         # real
@@ -291,26 +300,16 @@ class Diffraction(CoordSys):
         HupI = num.array(num.zeros((nsampDet,nsampSrc))) # x and xi
         HvqI = num.array(num.zeros((nsampDet,nsampSrc))) # y and eta
         
-        kk = 0
         for ii in range(nsampDet):
-            ll = 0
-            for jj in vecSM[:,0]:
-                HupR[kk,ll] = num.real(num.exp(-2.*num.pi*1j*ii*jj/srcSD))
-                HupI[kk,ll] = num.imag(num.exp(-2.*num.pi*1j*ii*jj/srcSD))
-                ll = ll + 1
-            kk = kk +1
+            for jj in range(nsampSrc):
+                HupR[ii,jj] = num.real(num.exp(-2.*num.pi*1j*uxA[ii,jj]))
+                HupI[ii,jj] = num.imag(num.exp(-2.*num.pi*1j*uxA[ii,jj]))
         
-        kk = 0
         for ii in range(nsampDet):
-            ll = 0
-            for jj in vecSM[:,1]:
-                HvqR[kk,ll] = num.real(num.exp(-2.*num.pi*1j*ii*jj/srcSD))
-                HvqI[kk,ll] = num.imag(num.exp(-2.*num.pi*1j*ii*jj/srcSD))
-                ll = ll + 1
-            kk = kk +1
-        
-        
-        
+            for jj in range(nsampSrc):
+                HvqR[ii,jj] = num.real(num.exp(-2.*num.pi*1j*vyA[ii,jj]))
+                HvqI[ii,jj] = num.imag(num.exp(-2.*num.pi*1j*vyA[ii,jj]))
+                
         Hup = HupR + 1j*HupI
         Hvq = HvqR + 1j*HvqI
         
@@ -331,7 +330,6 @@ class Diffraction(CoordSys):
         
         # Evaluate the diffraction integral
         detectorM = HupM*sourceMpq*HvqM.transpose()
-        detectorM = num.fft.fftshift(detectorM)
         detectorA = num.array(detectorM)
         
         detectorMult  = (-1j/wavel)*num.exp(-2*num.pi*1j*detectorPhaseA)
@@ -353,24 +351,26 @@ class Diffraction(CoordSys):
         theta          = num.pi/180.0*parms['theta']
         srcSD          = parms['srcSD']
         nSourcePoints  = parms['nSourcePoints']
+        fname          = parms['fname']
+        
+        vecSM, vecDM   = self.vecForm(0,0)                   # src and detector coordinate
+        HupM, HvqM = self.DFTMatrix2Dscaled(vecSM,vecDM)     # freq domain Jacobians
         
         detectorIrradAccumA = num.zeros((nsampDet,nsampDet))
-        sourceIrradAccumA   = num.zeros((nsampSrc,nsampSrc))
+        sourceIrradAccumA = num.zeros((nsampSrc,nsampSrc))
         
         for ii in range(nSourcePoints):
             for jj in range(nSourcePoints):
-            
-                yS0 = (ii-nSourcePoints/2)*srcSD/nSourcePoints
-                xS0 = (jj-nSourcePoints/2)*srcSD/nSourcePoints
+                
+                yS0 = 2.0*(ii-nSourcePoints/2)*srcSD/nSourcePoints
+                xS0 = 2.0*(jj-nSourcePoints/2)*srcSD/nSourcePoints
                 vecSM, vecDM   = self.vecForm(xS0,yS0)
-        
-                SXA, SYA, sourceA = self.SourceModel(vecSM)
-                DXA, DYA          = self.DetectorModel(vecDM)
-                sourceIrradAccumA = sourceIrradAccumA+sourceA
-                detectorPhaseA    = self.DetectorPhaseModel(DXA,DYA)
-        
-        #HupM, HvqM        = self.DFTMatrix2Dscaled(vecSM,vecDM)
-                HupM, HvqM          = self.DFTMatrix2D()
+                
+                SXA, SYA, sourceA   = self.SourceModel(vecSM)
+                DXA, DYA            = self.DetectorModel(vecDM)
+                sourceIrradAccumA   = sourceIrradAccumA+sourceA
+                detectorPhaseA      = self.DetectorPhaseModel(DXA,DYA)
+                
                 detectorM2D         = self.Integral2D(HupM,HvqM,sourceA, detectorPhaseA, DXA, DYA)
                 detectorM2A         = num.array(detectorM2D)
                 detectorIrradA      = num.real(num.conj(detectorM2A)*detectorM2A)
@@ -379,15 +379,15 @@ class Diffraction(CoordSys):
         # scale the DXA and DYA matrices
         vecSM, vecDM      = self.vecForm(0,0)
         SXA, SYA, sourceA = self.SourceModel(vecSM)
-    
-        DXAscale, DYAscale = wavel*z0*DXA/num.cos(theta), wavel*z0*DYA
+        
+        DXAscale, DYAscale = DXA/num.cos(theta), DYA
         
         # plot things
         py.ion()
         py.figure(figsize = (18,6))
         
         py.subplot(131)
-        py.pcolor(SXA,SYA,abs(sourceIrradAccumA))
+        py.pcolor(SXA,SYA,abs(num.real(num.conj(sourceIrradAccumA)*sourceIrradAccumA)))
         ax = py.gca()
         ax.axis(aspect=[1,1,1])
         py.xlabel(r'$x_{S}$' ' ' r'$(mm)$')
@@ -413,7 +413,10 @@ class Diffraction(CoordSys):
         py.plot(DXAscale[nsampDet/2,:],100*((deltaIrradA)/num.max(abs(detectorIrradAccumA))))
         py.xlim(num.min(DXAscale),-1*num.min(DXAscale))
         py.xlabel(r'$x_{D}$' ' ' r'$(mm)$')
-        py.title(r'$D(x_{D},0)$' ', ' r'$D(0,x_{D})$' ', ' r'$D(x_{D},0)-D(0,x_{D})$')
+        py.ylabel(r'$Variation of field irradiance$')
+        py.title(r'$D(x_{D},0)$' ', ' r'$D(0,x_{D})$' ', ' r'$100\times[D(x_{D},0)-D(0,x_{D})]/D(x_{D},0)$')
+
+        py.savefig(fname)
 
 
 #============================================================#
@@ -423,15 +426,16 @@ if __name__ == "__main__":
         # instantiate the class
         parms = {'wavel'     : 0.5e-03   ,                   # wavelength
             'detSD'     : 12.255         ,                   # detector semi-diameter
-            'nsampDet'  : 128            ,                    # detector sample points
+            'nsampDet'  : 256            ,                   # detector sample points
             'srcSD'     : 0.5            ,                   # source semi-diameter
-            'nsampSrc'  : 256            ,                    # source sample points
-            'nSourcePoints' : 15         ,                   # number of incoherent source points
-            'srcPadFac' : 64             ,                   # source padding factor
+            'nsampSrc'  : 1024           ,                   # source sample points
+            'nSourcePoints' : 25          ,                   # number of incoherent source points
+            'srcPadFac' : 512.0            ,                   # source padding factor
             'z0'        : 221.72         ,                   # distance to tilted plane
-            'theta'     : 60.0           ,                   # tilt angles of plane
-                
-            }
+            'theta'     : 0.0           ,                    # tilt angles of plane
+            'fname'     : 'incoherentSourceTheta0.png',       # figure name
+            
+        }
         
         ImClass = ISTB.ImageScienceClass()
         CoordSysObj = CoordSys(ImClass,parms)
